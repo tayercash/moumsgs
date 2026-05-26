@@ -275,7 +275,6 @@ public class PhoneSocketService {
     public void sendHeartbeat() {
         if (isConnected() && socket != null) {
             socket.emit("phone-ping");
-            checkSimChanges();
             sendSignalUpdate();
         }
     }
@@ -533,9 +532,9 @@ public class PhoneSocketService {
                             Log.e(TAG, "USSD failed on slot " + simSlot + " code: " + failureCode);
                             String msg;
                             if (failureCode == TelephonyManager.USSD_RETURN_FAILURE) {
-                                msg = "Network rejected request or invalid code";
+                                msg = "Network rejected request or network busy";
                             } else if (failureCode == -1) {
-                                msg = "Unknown error (possible SIM conflict)";
+                                msg = "Network error: SIM not registered or network timeout";
                             } else {
                                 msg = "USSD failed. Code: " + failureCode;
                             }
