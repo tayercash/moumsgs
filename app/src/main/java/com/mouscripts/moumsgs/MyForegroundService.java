@@ -83,6 +83,7 @@ public class MyForegroundService extends Service {
         acquireLocks();
         registerNetworkMonitor();
         registerScreenStateReceiver();
+        KeepAliveReceiver.schedule(this);
 
         phoneSocket = new PhoneSocketService(this);
         phoneSocket.connect();
@@ -244,6 +245,7 @@ public class MyForegroundService extends Service {
         instance = null;
 
         heartbeatHandler.removeCallbacks(heartbeatRunnable);
+        KeepAliveReceiver.cancel(this);
 
         if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
         if (wifiLock != null && wifiLock.isHeld()) wifiLock.release();

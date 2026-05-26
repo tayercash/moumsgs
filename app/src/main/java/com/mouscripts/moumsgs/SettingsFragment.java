@@ -49,7 +49,7 @@ public class SettingsFragment extends Fragment {
 
     private TextInputEditText serverUrlEditText;
     private MaterialSwitch gatewaySwitch, firebaseSwitch;
-    private MaterialButton saveButton, testButton, sendAllButton, goToMessagesButton, batteryOptimizationButton, defaultSmsButton, defaultDialerButton;
+    private MaterialButton saveButton, testButton, sendAllButton, goToMessagesButton, batteryOptimizationButton, autoStartButton, defaultSmsButton, defaultDialerButton;
     private TextView statusTextView, batteryStatusText, defaultSmsStatusText, defaultDialerStatusText;
     private MaterialCardView firstTimeCard, bulkSendCard;
     private RadioGroup themeRadioGroup;
@@ -87,6 +87,7 @@ public class SettingsFragment extends Fragment {
         testButton = view.findViewById(R.id.testButton);
         statusTextView = view.findViewById(R.id.statusTextView);
         batteryOptimizationButton = view.findViewById(R.id.batteryOptimizationButton);
+        autoStartButton = view.findViewById(R.id.autoStartButton);
         batteryStatusText = view.findViewById(R.id.batteryStatusText);
         firstTimeCard = view.findViewById(R.id.firstTimeCard);
         bulkSendCard = view.findViewById(R.id.bulkSendCard);
@@ -326,6 +327,16 @@ public class SettingsFragment extends Fragment {
             intent.setAction(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
             intent.setData(Uri.parse("package:" + requireContext().getPackageName()));
             startActivity(intent);
+        });
+
+        autoStartButton.setOnClickListener(v -> {
+            try {
+                Intent miui = new Intent();
+                miui.setAction("android.settings.APPLICATION_DETAILS_SETTINGS");
+                miui.setData(Uri.parse("package:" + requireContext().getPackageName()));
+                startActivity(miui);
+                Toast.makeText(requireContext(), "Enable Auto-Start in Settings > Autostart", Toast.LENGTH_LONG).show();
+            } catch (Exception ignored) {}
         });
 
         defaultSmsButton.setOnClickListener(v -> {

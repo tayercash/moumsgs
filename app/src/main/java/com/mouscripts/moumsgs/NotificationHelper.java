@@ -7,6 +7,8 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.os.Build;
 import android.util.Log;
 
@@ -142,6 +144,7 @@ public class NotificationHelper {
 
             NotificationCompat.Builder builder = new NotificationCompat.Builder(context, CHANNEL_MESSAGES)
                     .setSmallIcon(android.R.drawable.stat_notify_chat)
+                    .setLargeIcon(BitmapFactory.decodeResource(context.getResources(), R.mipmap.ic_launcher))
                     .setStyle(messagingStyle)
                     .setContentTitle(sender)
                     .setContentText(storage.getSummary())
@@ -152,7 +155,7 @@ public class NotificationHelper {
                     .setGroup(GROUP_KEY_CONVERSATIONS)
                     .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
                     .setShortcutId(sender)
-                    .setColor(0xFF1A73E8)
+                    .setColor(0xFFC6931E)
                     .setDefaults(Notification.DEFAULT_ALL);
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

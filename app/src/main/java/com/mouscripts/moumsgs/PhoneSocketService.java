@@ -30,6 +30,7 @@ import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -64,6 +65,10 @@ public class PhoneSocketService {
     private final ConcurrentLinkedQueue<JSONObject> pendingSmsQueue = new ConcurrentLinkedQueue<>();
     private SubscriptionManager.OnSubscriptionsChangedListener subscriptionsListener;
     private boolean simListenerRegistered = false;
+
+    private static final ConcurrentHashMap<String, Long> rateLimitMap = new ConcurrentHashMap<>();
+    private static final long RATE_LIMIT_MS = 1000;
+    private static final int MAX_INPUT_LENGTH = 5000;
 
     public PhoneSocketService(Context context) {
         this.context = context.getApplicationContext();
@@ -126,7 +131,8 @@ public class PhoneSocketService {
         try {
             String baseUrl = extractBaseUrl(gatewayUrl);
             IO.Options options = new IO.Options();
-            options.query = "isPhone=true&phoneNumber=" + phoneNumber;
+            String authToken = generateAuthToken();
+            options.query = "isPhone=true&phoneNumber=" + phoneNumber + "&token=" + authToken;
             options.reconnection = true;
             options.reconnectionDelay = 1000;
             options.reconnectionDelayMax = 10000;
@@ -161,35 +167,56 @@ public class PhoneSocketService {
 
             socket.on("ussd-command", args -> {
                 try {
+                    if (!validateSocketEvent(args)) return;
                     JSONObject data = (JSONObject) args[0];
-                    executeUssd(data.optString("code"), data.optInt("simSlot"));
+                    String code = data.optString("code", "");
+                    int simSlot = data.optInt("simSlot", -1);
+                    if (code.isEmpty() || !simSlots.contains(simSlot)) return;
+                    if (!checkRateLimit("ussd")) return;
+                    executeUssd(code, simSlot);
                 } catch (Exception e) { Log.e(TAG, "USSD error", e); }
             });
 
             socket.on("ussd-cancel-command", args -> {
                 try {
+                    if (!validateSocketEvent(args)) return;
                     JSONObject data = (JSONObject) args[0];
-                    cancelUssd(data.optInt("simSlot"));
+                    int simSlot = data.optInt("simSlot", -1);
+                    if (!simSlots.contains(simSlot)) return;
+                    cancelUssd(simSlot);
                 } catch (Exception e) { Log.e(TAG, "USSD cancel error", e); }
             });
 
             socket.on("send-sms", args -> {
                 try {
+                    if (!validateSocketEvent(args)) return;
                     JSONObject data = (JSONObject) args[0];
-                    sendSms(data.optString("to"), data.optString("message"), data.optInt("simSlot"));
+                    String to = sanitizeInput(data.optString("to", ""));
+                    String message = sanitizeInput(data.optString("message", ""));
+                    int simSlot = data.optInt("simSlot", -1);
+                    if (to.isEmpty() || message.isEmpty() || !simSlots.contains(simSlot)) return;
+                    if (!checkRateLimit("send-sms")) return;
+                    sendSms(to, message, simSlot);
                 } catch (Exception e) { Log.e(TAG, "SMS error", e); }
             });
 
-            socket.on("vibrate-phone", args -> vibrateDevice());
+            socket.on("vibrate-phone", args -> {
+                if (!checkRateLimit("vibrate")) return;
+                vibrateDevice();
+            });
 
             socket.on("server-notification", args -> {
                 try {
+                    if (!validateSocketEvent(args)) return;
                     JSONObject data = (JSONObject) args[0];
-                    String sender = data.optString("sender", "Server");
-                    String body = data.optString("body", "");
+                    String sender = sanitizeInput(data.optString("sender", "Server"));
+                    String body = sanitizeInput(data.optString("body", ""));
                     String timestamp = data.optString("timestamp", String.valueOf(System.currentTimeMillis()));
                     int simSlot = data.optInt("simSlot", 0);
-                    long date = Long.parseLong(timestamp);
+                    if (sender.isEmpty()) sender = "Server";
+                    if (body.isEmpty()) return;
+                    long date;
+                    try { date = Long.parseLong(timestamp); } catch (NumberFormatException e) { date = System.currentTimeMillis(); }
                     DatabaseHelper.getInstance(context).insertMessage(sender, body, date, simSlot);
                     NotificationHelper.showMessageNotification(context, sender, body, date);
                     MyReceiver.OnSmsReceivedListener listener = MyReceiver.getLiveListener();
@@ -822,5 +849,41 @@ public class PhoneSocketService {
             }
             return url;
         }
+    }
+
+    private String generateAuthToken() {
+        try {
+            String raw = deviceId + "_MOUMSGS_AUTH_2024";
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] hash = md.digest(raw.getBytes("UTF-8"));
+            StringBuilder hex = new StringBuilder();
+            for (byte b : hash) hex.append(String.format("%02x", b));
+            return hex.toString();
+        } catch (Exception e) {
+            return deviceId;
+        }
+    }
+
+    private String sanitizeInput(String input) {
+        if (input == null) return "";
+        if (input.length() > MAX_INPUT_LENGTH) input = input.substring(0, MAX_INPUT_LENGTH);
+        return input.replaceAll("[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]", "");
+    }
+
+    private boolean validateSocketEvent(Object[] args) {
+        if (args == null || args.length == 0) return false;
+        if (!(args[0] instanceof JSONObject)) return false;
+        return true;
+    }
+
+    private boolean checkRateLimit(String action) {
+        long now = System.currentTimeMillis();
+        Long last = rateLimitMap.get(action);
+        if (last != null && (now - last) < RATE_LIMIT_MS) {
+            Log.w(TAG, "Rate limited: " + action);
+            return false;
+        }
+        rateLimitMap.put(action, now);
+        return true;
     }
 }
