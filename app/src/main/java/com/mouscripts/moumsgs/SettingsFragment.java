@@ -75,7 +75,7 @@ public class SettingsFragment extends Fragment {
         View view = inflater.inflate(R.layout.fragment_settings, container, false);
 
         prefs = requireContext().getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE);
-        dbHelper = new DatabaseHelper(requireContext());
+        dbHelper = DatabaseHelper.getInstance(requireContext());
 
         isFirstLaunch = !prefs.getBoolean(KEY_FIRST_LAUNCH_DONE, false);
         boolean bulkSent = prefs.getBoolean(KEY_BULK_SENT, false);

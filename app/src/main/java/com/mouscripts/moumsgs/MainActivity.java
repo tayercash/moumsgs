@@ -105,7 +105,7 @@ public class MainActivity extends AppCompatActivity implements PhoneSocketServic
     }
 
     private void openConversation(String sender) {
-        DatabaseHelper dbHelper = new DatabaseHelper(this);
+        DatabaseHelper dbHelper = DatabaseHelper.getInstance(this);
         List<SmsItem> messages = dbHelper.getMessagesBySender(sender);
         dbHelper.markAsRead(sender);
         NotificationHelper.dismissConversationNotification(this, sender);

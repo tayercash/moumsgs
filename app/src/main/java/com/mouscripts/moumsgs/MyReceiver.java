@@ -44,68 +44,71 @@ public class MyReceiver extends BroadcastReceiver {
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        Log.i(TAG, "Intent Received: " + intent.getAction());
-        if (!SMS_RECEIVED.equals(intent.getAction()) && !SMS_DELIVER.equals(intent.getAction())) return;
+        try {
+            Log.i(TAG, "Intent Received: " + intent.getAction());
+            if (!SMS_RECEIVED.equals(intent.getAction()) && !SMS_DELIVER.equals(intent.getAction())) return;
 
-        Bundle dataBundle = intent.getExtras();
-        if (dataBundle == null) return;
+            Bundle dataBundle = intent.getExtras();
+            if (dataBundle == null) return;
 
-        Object[] pdus = (Object[]) dataBundle.get("pdus");
-        if (pdus == null || pdus.length == 0) return;
+            Object[] pdus = (Object[]) dataBundle.get("pdus");
+            if (pdus == null || pdus.length == 0) return;
 
-        int simSlot = 0;
-        if (dataBundle.containsKey("subscription")) {
-            simSlot = dataBundle.getInt("subscription");
-        } else if (dataBundle.containsKey("slot")) {
-            simSlot = dataBundle.getInt("slot");
-        } else if (dataBundle.containsKey("simId")) {
-            simSlot = dataBundle.getInt("simId");
-        }
+            int simSlot = 0;
+            if (dataBundle.containsKey("subscription")) {
+                simSlot = dataBundle.getInt("subscription");
+            } else if (dataBundle.containsKey("slot")) {
+                simSlot = dataBundle.getInt("slot");
+            } else if (dataBundle.containsKey("simId")) {
+                simSlot = dataBundle.getInt("simId");
+            }
 
-        SmsMessage[] messages = new SmsMessage[pdus.length];
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < pdus.length; i++) {
-            messages[i] = SmsMessage.createFromPdu((byte[]) pdus[i]);
-            sb.append(messages[i].getMessageBody());
-        }
+            SmsMessage[] messages = new SmsMessage[pdus.length];
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < pdus.length; i++) {
+                messages[i] = SmsMessage.createFromPdu((byte[]) pdus[i]);
+                sb.append(messages[i].getMessageBody());
+            }
 
-        final String phoneNo = messages[0].getOriginatingAddress();
-        final String msg = sb.toString();
-        long smsDate = messages[0].getTimestampMillis();
-        final String currentTimestamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date(smsDate));
-        final int finalSimSlot = simSlot;
+            final String phoneNo = messages[0].getOriginatingAddress();
+            final String msg = sb.toString();
+            long smsDate = messages[0].getTimestampMillis();
+            final String currentTimestamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(new Date(smsDate));
+            final int finalSimSlot = simSlot;
 
-        SmsItem newItem = new SmsItem(phoneNo, msg, smsDate, currentTimestamp, false, simSlot);
+            SmsItem newItem = new SmsItem(phoneNo, msg, smsDate, currentTimestamp, false, simSlot);
 
-        DatabaseHelper dbHelper = new DatabaseHelper(context);
-        dbHelper.insertMessage(phoneNo, msg, smsDate, simSlot);
+            DatabaseHelper.getInstance(context).insertMessage(phoneNo, msg, smsDate, simSlot);
 
-        NotificationHelper.showMessageNotification(context, phoneNo, msg, smsDate);
+            NotificationHelper.showMessageNotification(context, phoneNo, msg, smsDate);
 
-        if (liveListener != null) {
-            liveListener.onSmsReceived(newItem);
-        }
+            if (liveListener != null) {
+                liveListener.onSmsReceived(newItem);
+            }
 
-        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        boolean gatewayEnabled = prefs.getBoolean(KEY_GATEWAY_ENABLED, true);
-        boolean firebaseEnabled = prefs.getBoolean(KEY_FIREBASE_ENABLED, true);
+            SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            boolean gatewayEnabled = prefs.getBoolean(KEY_GATEWAY_ENABLED, true);
+            boolean firebaseEnabled = prefs.getBoolean(KEY_FIREBASE_ENABLED, true);
 
-        if (gatewayEnabled) {
-            MyForegroundService fs = MyForegroundService.getInstance();
-            if (fs != null) {
-                PhoneSocketService socketService = fs.getPhoneSocket();
-                if (socketService != null) {
-                    socketService.sendSmsEvent(phoneNo, msg, currentTimestamp, simSlot);
+            if (gatewayEnabled) {
+                MyForegroundService fs = MyForegroundService.getInstance();
+                if (fs != null) {
+                    PhoneSocketService socketService = fs.getPhoneSocket();
+                    if (socketService != null) {
+                        socketService.sendSmsEvent(phoneNo, msg, currentTimestamp, simSlot);
+                    } else {
+                        startServiceAndSend(context, phoneNo, msg, currentTimestamp, simSlot);
+                    }
                 } else {
                     startServiceAndSend(context, phoneNo, msg, currentTimestamp, simSlot);
                 }
-            } else {
-                startServiceAndSend(context, phoneNo, msg, currentTimestamp, simSlot);
             }
-        }
 
-        if (firebaseEnabled) {
-            uploadToFirebase(msg, phoneNo, currentTimestamp.substring(0, 10), currentTimestamp.substring(11), simSlot);
+            if (firebaseEnabled) {
+                uploadToFirebase(msg, phoneNo, currentTimestamp.substring(0, 10), currentTimestamp.substring(11), simSlot);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error processing SMS", e);
         }
     }
 

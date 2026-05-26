@@ -53,7 +53,7 @@ public class MessagesFragment extends Fragment {
         View view = inflater.inflate(R.layout.fragment_messages, container, false);
         recyclerView = view.findViewById(R.id.recyclerView);
         tvEmpty = view.findViewById(R.id.tvEmpty);
-        dbHelper = new DatabaseHelper(requireContext());
+        dbHelper = DatabaseHelper.getInstance(requireContext());
         recyclerView.setLayoutManager(new LinearLayoutManager(getContext()));
         conversations = new ArrayList<>();
         adapter = new ConversationAdapter(conversations, conversation -> {

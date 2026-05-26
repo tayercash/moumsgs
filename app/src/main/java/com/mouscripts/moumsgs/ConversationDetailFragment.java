@@ -97,7 +97,7 @@ public class ConversationDetailFragment extends Fragment implements MyReceiver.O
         getActivity().runOnUiThread(() -> {
             if (item.getAddress().equals(currentSender)) {
                 NotificationHelper.dismissConversationNotification(getActivity(), currentSender);
-                new DatabaseHelper(getActivity()).markAsRead(currentSender);
+                DatabaseHelper.getInstance(getActivity()).markAsRead(currentSender);
                 if (adapter != null) {
                     adapter.addMessage(item);
                     recyclerView.smoothScrollToPosition(adapter.getItemCount() - 1);

@@ -14,6 +14,15 @@ import java.util.Locale;
 
 public class DatabaseHelper extends SQLiteOpenHelper {
 
+    private static DatabaseHelper instance;
+
+    public static DatabaseHelper getInstance(Context context) {
+        if (instance == null) {
+            instance = new DatabaseHelper(context.getApplicationContext());
+        }
+        return instance;
+    }
+
     private static final String DB_NAME = "moumsgs.db";
     private static final int DB_VERSION = 2;
     private static final String TABLE_MESSAGES = "messages";
