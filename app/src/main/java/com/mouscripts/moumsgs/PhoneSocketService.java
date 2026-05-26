@@ -301,10 +301,27 @@ public class PhoneSocketService {
     private int readSignalStrength(int simSlot) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return -1;
         try {
-            TelephonyManager tm = getTelephonyManagerForSlot(simSlot);
+            TelephonyManager tm = (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
             if (tm == null) return -1;
+            int subId = getSubIdForSlot(simSlot);
+            if (subId >= 0 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                tm = tm.createForSubscriptionId(subId);
+            }
             SignalStrength ss = tm.getSignalStrength();
             if (ss == null) return -1;
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                List<CellSignalStrength> cssList = ss.getCellSignalStrengths();
+                if (cssList != null && !cssList.isEmpty()) {
+                    int bestLevel = 0;
+                    for (CellSignalStrength css : cssList) {
+                        int lvl = css.getLevel();
+                        if (lvl > bestLevel) bestLevel = lvl;
+                    }
+                    return bestLevel * 25;
+                }
+            }
+
             int level = ss.getLevel();
             return level * 25;
         } catch (SecurityException e) {
