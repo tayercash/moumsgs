@@ -104,66 +104,70 @@ public class NotificationHelper {
     }
 
     public static void showMessageNotification(Context context, String sender, String message, long timestamp) {
-        NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
-        if (nm == null) return;
+        try {
+            NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm == null) return;
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            if (nm.getNotificationChannel(CHANNEL_MESSAGES) == null) {
-                init(context);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (nm.getNotificationChannel(CHANNEL_MESSAGES) == null) {
+                    init(context);
+                }
             }
+
+            SenderNotification sn = senderNotifs.get(sender);
+            SmsStorage storage;
+            int notificationId;
+
+            if (sn == null) {
+                int id = nextId++;
+                storage = new SmsStorage(sender);
+                senderNotifs.put(sender, new SenderNotification(id, storage));
+                notificationId = id;
+            } else {
+                storage = sn.storage;
+                notificationId = sn.id;
+            }
+
+            storage.addMessage(message, timestamp);
+
+            String time = new SimpleDateFormat("HH:mm", Locale.getDefault()).format(new Date(timestamp));
+
+            Intent intent = new Intent(context, MainActivity.class);
+            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            intent.putExtra("sender", sender);
+            int flags = PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT;
+            PendingIntent pi = PendingIntent.getActivity(context, notificationId, intent, flags);
+
+            NotificationCompat.MessagingStyle messagingStyle = buildMessagingStyle(sender, storage);
+
+            NotificationCompat.Builder builder = new NotificationCompat.Builder(context, CHANNEL_MESSAGES)
+                    .setSmallIcon(android.R.drawable.stat_notify_chat)
+                    .setStyle(messagingStyle)
+                    .setContentTitle(sender)
+                    .setContentText(storage.getSummary())
+                    .setPriority(NotificationCompat.PRIORITY_HIGH)
+                    .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                    .setAutoCancel(true)
+                    .setContentIntent(pi)
+                    .setGroup(GROUP_KEY_CONVERSATIONS)
+                    .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
+                    .setShortcutId(sender)
+                    .setColor(0xFF1A73E8)
+                    .setDefaults(Notification.DEFAULT_ALL);
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                builder.setChannelId(CHANNEL_MESSAGES);
+            }
+
+            nm.notify(notificationId, builder.build());
+            updateSummaryNotification(context, nm);
+        } catch (Exception e) {
+            Log.e(TAG, "showMessageNotification failed", e);
         }
-
-        SenderNotification sn = senderNotifs.get(sender);
-        SmsStorage storage;
-        int notificationId;
-
-        if (sn == null) {
-            int id = nextId++;
-            storage = new SmsStorage(sender);
-            senderNotifs.put(sender, new SenderNotification(id, storage));
-            notificationId = id;
-        } else {
-            storage = sn.storage;
-            notificationId = sn.id;
-        }
-
-        storage.addMessage(message, timestamp);
-
-        String time = new SimpleDateFormat("HH:mm", Locale.getDefault()).format(new Date(timestamp));
-
-        Intent intent = new Intent(context, MainActivity.class);
-        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        intent.putExtra("sender", sender);
-        int flags = PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT;
-        PendingIntent pi = PendingIntent.getActivity(context, notificationId, intent, flags);
-
-        NotificationCompat.MessagingStyle messagingStyle = buildMessagingStyle(sender, storage, message, timestamp);
-
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(context, CHANNEL_MESSAGES)
-                .setSmallIcon(android.R.drawable.stat_notify_chat)
-                .setStyle(messagingStyle)
-                .setContentTitle(sender)
-                .setContentText(storage.getSummary())
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-                .setAutoCancel(true)
-                .setContentIntent(pi)
-                .setGroup(GROUP_KEY_CONVERSATIONS)
-                .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
-                .setShortcutId(sender)
-                .setColor(0xFF1A73E8)
-                .setDefaults(Notification.DEFAULT_ALL);
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            builder.setChannelId(CHANNEL_MESSAGES);
-        }
-
-        nm.notify(notificationId, builder.build());
-        updateSummaryNotification(context, nm);
     }
 
     private static NotificationCompat.MessagingStyle buildMessagingStyle(
-            String sender, SmsStorage storage, String newMessage, long newTimestamp) {
+            String sender, SmsStorage storage) {
 
         Person senderPerson = new Person.Builder()
                 .setName(sender)
