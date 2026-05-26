@@ -516,6 +516,33 @@ public class PhoneSocketService {
         });
     }
 
+    private boolean isSimRegistered(int simSlot) {
+        try {
+            TelephonyManager tm = getTelephonyManagerForSlot(simSlot);
+            if (tm == null) return false;
+            int simState = tm.getSimState();
+            if (simState != TelephonyManager.SIM_STATE_READY) {
+                Log.w(TAG, "SIM slot " + simSlot + " not ready (state=" + simState + ")");
+                return false;
+            }
+            String operator = tm.getNetworkOperatorName();
+            if (operator == null || operator.isEmpty()) {
+                Log.w(TAG, "SIM slot " + simSlot + " not registered on network (no operator)");
+                return false;
+            }
+            int voiceNetType = tm.getVoiceNetworkType();
+            Log.i(TAG, "SIM slot " + simSlot + " registered on " + operator
+                    + " (voiceNetType=" + voiceNetType + ", simState=" + simState + ")");
+            return true;
+        } catch (SecurityException e) {
+            Log.w(TAG, "Can't check network registration for slot " + simSlot, e);
+            return true;
+        } catch (Exception e) {
+            Log.w(TAG, "Error checking registration for slot " + simSlot, e);
+            return true;
+        }
+    }
+
     private void executeUssd(String code, int simSlot) {
         if (!simSlots.contains(simSlot)) {
             Log.w(TAG, "USSD on invalid slot " + simSlot + ", available: " + simSlots);
@@ -528,6 +555,14 @@ public class PhoneSocketService {
             return;
         }
 
+        if (!isSimRegistered(simSlot)) {
+            Log.e(TAG, "SIM slot " + simSlot + " not registered, attempting anyway");
+        }
+
+        sendUssdRequestInternal(code, simSlot, 0);
+    }
+
+    private void sendUssdRequestInternal(String code, int simSlot, int retryCount) {
         new Handler(Looper.getMainLooper()).post(() -> {
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -539,14 +574,23 @@ public class PhoneSocketService {
                     }
                     String ussdCode = code.startsWith("*") ? code : "*" + code;
                     if (!ussdCode.endsWith("#")) ussdCode += "#";
-                    Log.i(TAG, "Sending USSD: " + ussdCode + " on slot " + simSlot);
+                    Log.i(TAG, "Sending USSD: " + ussdCode + " on slot " + simSlot
+                            + " (attempt " + (retryCount + 1) + ")");
                     tm.sendUssdRequest(ussdCode, new TelephonyManager.UssdResponseCallback() {
                         @Override public void onReceiveUssdResponse(TelephonyManager tm, String req, CharSequence res) {
                             Log.i(TAG, "USSD response on slot " + simSlot + ": " + res);
                             sendUssdResponse(simSlot, res.toString());
                         }
                         @Override public void onReceiveUssdResponseFailed(TelephonyManager tm, String req, int failureCode) {
-                            Log.e(TAG, "USSD failed on slot " + simSlot + " code: " + failureCode);
+                            Log.e(TAG, "USSD failed on slot " + simSlot + " code: " + failureCode
+                                    + " (attempt " + (retryCount + 1) + ")");
+                            if (retryCount < 1 && failureCode == TelephonyManager.USSD_RETURN_FAILURE) {
+                                Log.i(TAG, "Retrying USSD on slot " + simSlot + " in 2s...");
+                                new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                                    sendUssdRequestInternal(code, simSlot, retryCount + 1);
+                                }, 2000);
+                                return;
+                            }
                             String msg;
                             if (failureCode == TelephonyManager.USSD_RETURN_FAILURE) {
                                 msg = "Network rejected request or network busy";
