@@ -107,6 +107,12 @@ public class NotificationHelper {
         NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
         if (nm == null) return;
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (nm.getNotificationChannel(CHANNEL_MESSAGES) == null) {
+                init(context);
+            }
+        }
+
         SenderNotification sn = senderNotifs.get(sender);
         SmsStorage storage;
         int notificationId;

