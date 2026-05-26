@@ -321,7 +321,7 @@
         </com.google.android.material.card.MaterialCardView>
 
         <com.google.android.material.card.MaterialCardView
-            android:id="@+id/defaultSmsCard"
+            android:id="@+id/defaultAppsCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
@@ -339,38 +339,93 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Default SMS App"
+                    android:text="Default Apps"
                     android:textSize="18sp"
                     android:textStyle="bold"
                     android:textColor="@color/primary"
-                    android:layout_marginBottom="8dp" />
+                    android:drawablePadding="8dp"
+                    android:drawableStart="@android:drawable/ic_menu_manage"
+                    android:layout_marginBottom="12dp" />
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Setting this app as the default SMS app ensures reliable SMS reception on all Android versions. The app needs to be the default to receive SMS on Android 14+."
+                    android:text="Set this app as default for SMS and phone calls. The app needs to be the default SMS app to receive SMS reliably on Android 14+, and the default dialer to handle interactive USSD menus."
                     android:textSize="13sp"
                     android:textColor="@color/text_secondary"
-                    android:lineSpacingExtra="3dp" />
+                    android:lineSpacingExtra="3dp"
+                    android:layout_marginBottom="12dp" />
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="@color/divider"
+                    android:layout_marginBottom="12dp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="SMS"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/on_surface"
+                    android:layout_marginBottom="8dp" />
 
                 <TextView
                     android:id="@+id/defaultSmsStatusText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
                     android:text=""
                     android:textSize="13sp"
                     android:textStyle="bold"
                     android:gravity="center"
-                    android:padding="10dp"
+                    android:padding="8dp"
                     android:background="@color/divider"
-                    android:layout_marginBottom="12dp" />
+                    android:layout_marginBottom="8dp" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/defaultSmsButton"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="Set as Default SMS App"
+                    app:strokeColor="@color/primary"
+                    app:strokeWidth="2dp"
+                    app:backgroundTint="@android:color/transparent"
+                    android:textColor="@color/primary"
+                    android:layout_marginBottom="16dp" />
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="@color/divider"
+                    android:layout_marginBottom="12dp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Phone (Dialer)"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/on_surface"
+                    android:layout_marginBottom="8dp" />
+
+                <TextView
+                    android:id="@+id/defaultDialerStatusText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text=""
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:gravity="center"
+                    android:padding="8dp"
+                    android:background="@color/divider"
+                    android:layout_marginBottom="8dp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/defaultDialerButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Set as Default Dialer App"
                     app:strokeColor="@color/primary"
                     app:strokeWidth="2dp"
                     app:backgroundTint="@android:color/transparent"

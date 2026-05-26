@@ -49,8 +49,8 @@ public class SettingsFragment extends Fragment {
 
     private TextInputEditText serverUrlEditText;
     private MaterialSwitch gatewaySwitch, firebaseSwitch;
-    private MaterialButton saveButton, testButton, sendAllButton, goToMessagesButton, batteryOptimizationButton, defaultSmsButton;
-    private TextView statusTextView, batteryStatusText, defaultSmsStatusText;
+    private MaterialButton saveButton, testButton, sendAllButton, goToMessagesButton, batteryOptimizationButton, defaultSmsButton, defaultDialerButton;
+    private TextView statusTextView, batteryStatusText, defaultSmsStatusText, defaultDialerStatusText;
     private MaterialCardView firstTimeCard, bulkSendCard;
     private RadioGroup themeRadioGroup;
 
@@ -95,6 +95,8 @@ public class SettingsFragment extends Fragment {
         themeRadioGroup = view.findViewById(R.id.themeRadioGroup);
         defaultSmsButton = view.findViewById(R.id.defaultSmsButton);
         defaultSmsStatusText = view.findViewById(R.id.defaultSmsStatusText);
+        defaultDialerButton = view.findViewById(R.id.defaultDialerButton);
+        defaultDialerStatusText = view.findViewById(R.id.defaultDialerStatusText);
 
         if (isFirstLaunch) {
             firstTimeCard.setVisibility(View.VISIBLE);
@@ -118,6 +120,7 @@ public class SettingsFragment extends Fragment {
         super.onResume();
         updateBatteryStatus();
         updateDefaultSmsStatus();
+        updateDefaultDialerStatus();
     }
 
     private void checkSavedState() {
@@ -174,20 +177,19 @@ public class SettingsFragment extends Fragment {
     }
 
     private boolean isDefaultSmsApp() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            try {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 RoleManager roleManager = requireContext().getSystemService(RoleManager.class);
-                return roleManager != null && roleManager.isRoleHeld(RoleManager.ROLE_SMS);
-            } catch (Exception e) {
-                return false;
+                if (roleManager != null && roleManager.isRoleHeld(RoleManager.ROLE_SMS)) {
+                    return true;
+                }
             }
-        } else {
-            try {
-                String defaultPackage = Telephony.Sms.getDefaultSmsPackage(requireContext());
-                return defaultPackage != null && defaultPackage.equals(requireContext().getPackageName());
-            } catch (Exception e) {
-                return false;
-            }
+        } catch (Exception ignored) {}
+        try {
+            String defaultPackage = Telephony.Sms.getDefaultSmsPackage(requireContext());
+            return defaultPackage != null && defaultPackage.equals(requireContext().getPackageName());
+        } catch (Exception e) {
+            return false;
         }
     }
 
@@ -201,16 +203,66 @@ public class SettingsFragment extends Fragment {
                     return;
                 }
             }
-            Intent intent = new Intent(Telephony.Sms.Intents.ACTION_CHANGE_DEFAULT);
-            intent.putExtra(Telephony.Sms.Intents.EXTRA_PACKAGE_NAME, requireContext().getPackageName());
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            requireActivity().startActivity(intent);
-        } catch (android.content.ActivityNotFoundException e) {
-            Toast.makeText(requireContext(), "Default SMS settings not available on this device", Toast.LENGTH_LONG).show();
-            Log.e("SettingsFragment", "Activity not found for default SMS", e);
+            Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+            intent.setData(Uri.parse("package:" + requireContext().getPackageName()));
+            startActivity(intent);
         } catch (Exception e) {
-            Toast.makeText(requireContext(), "Error: " + e.getMessage(), Toast.LENGTH_LONG).show();
             Log.e("SettingsFragment", "Error requesting default SMS", e);
+            Toast.makeText(requireContext(), "خطأ: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private boolean isDefaultDialer() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                RoleManager roleManager = requireContext().getSystemService(RoleManager.class);
+                if (roleManager != null && roleManager.isRoleHeld(RoleManager.ROLE_DIALER)) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {}
+        try {
+            android.telecom.TelecomManager tm = (android.telecom.TelecomManager)
+                    requireContext().getSystemService(requireContext().TELECOM_SERVICE);
+            if (tm != null) {
+                String defaultDialer = tm.getDefaultDialerPackage();
+                return defaultDialer != null && defaultDialer.equals(requireContext().getPackageName());
+            }
+        } catch (Exception ignored) {}
+        return false;
+    }
+
+    private void updateDefaultDialerStatus() {
+        boolean isDefault = isDefaultDialer();
+        if (isDefault) {
+            defaultDialerStatusText.setText("Default Dialer App");
+            defaultDialerStatusText.setTextColor(0xFF4CAF50);
+            defaultDialerButton.setText("Default Dialer App");
+            defaultDialerButton.setEnabled(false);
+        } else {
+            defaultDialerStatusText.setText("Not the default dialer app");
+            defaultDialerStatusText.setTextColor(0xFFEF5350);
+            defaultDialerButton.setText("Set as Default Dialer App");
+            defaultDialerButton.setEnabled(true);
+        }
+    }
+
+    private void requestDefaultDialer() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                RoleManager roleManager = requireContext().getSystemService(RoleManager.class);
+                if (roleManager != null) {
+                    Intent intent = roleManager.createRequestRoleIntent(RoleManager.ROLE_DIALER);
+                    startActivity(intent);
+                    return;
+                }
+            }
+            Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+            intent.setData(Uri.parse("package:" + requireContext().getPackageName()));
+            startActivity(intent);
+        } catch (Exception e) {
+            Log.e("SettingsFragment", "Error requesting default dialer", e);
+            Toast.makeText(requireContext(), "خطأ: " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
     }
 
@@ -263,13 +315,40 @@ public class SettingsFragment extends Fragment {
         });
 
         batteryOptimizationButton.setOnClickListener(v -> {
+            try {
+                Intent miui = new Intent("miui.intent.action.APP_BATTERY_SAVER");
+                miui.putExtra("package_name", requireContext().getPackageName());
+                miui.setClassName("com.miui.securitycenter", "com.miui.securitycenter.power.BatteryAppActivity");
+                startActivity(miui);
+                return;
+            } catch (Exception ignored) {}
             Intent intent = new Intent();
             intent.setAction(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
             intent.setData(Uri.parse("package:" + requireContext().getPackageName()));
             startActivity(intent);
         });
 
-        defaultSmsButton.setOnClickListener(v -> requestDefaultSms());
+        defaultSmsButton.setOnClickListener(v -> {
+            Toast.makeText(requireContext(), "جاري فتح إعدادات SMS...", Toast.LENGTH_SHORT).show();
+            requestDefaultSms();
+        });
+        defaultDialerButton.setOnClickListener(v -> {
+            Toast.makeText(requireContext(), "جاري فتح إعدادات الاتصال...", Toast.LENGTH_SHORT).show();
+            requestDefaultDialer();
+        });
+    }
+
+    private String buildApiUrl(String baseUrl) {
+        baseUrl = baseUrl.trim();
+        if (baseUrl.isEmpty()) return baseUrl;
+        if (!baseUrl.startsWith("http://") && !baseUrl.startsWith("https://")) {
+            baseUrl = "http://" + baseUrl;
+        }
+        baseUrl = baseUrl.replaceAll("/+$", "");
+        if (!baseUrl.endsWith("/api/phone-message")) {
+            baseUrl += "/api/phone-message";
+        }
+        return baseUrl;
     }
 
     private void saveSettings() {
@@ -279,6 +358,11 @@ public class SettingsFragment extends Fragment {
             statusTextView.setText(R.string.enter_server_url);
             return;
         }
+
+        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            url = "http://" + url;
+        }
+        url = url.replaceAll("/+$", "");
 
         prefs.edit()
                 .putString(KEY_GATEWAY_URL, url)
@@ -329,6 +413,7 @@ public class SettingsFragment extends Fragment {
         statusTextView.setTextColor(ContextCompat.getColor(requireContext(), R.color.text_secondary));
         statusTextView.setText(getString(R.string.sending_progress, 0, total));
 
+        final String apiUrl = buildApiUrl(url);
         final String deviceNumber = detectPhoneNumberBulk();
 
         new Thread(() -> {
@@ -336,7 +421,7 @@ public class SettingsFragment extends Fragment {
             boolean allSuccess = true;
             for (SmsItem item : allMessages) {
                 try {
-                    URL sendUrl = new URL(url);
+                    URL sendUrl = new URL(apiUrl);
                     HttpURLConnection conn = (HttpURLConnection) sendUrl.openConnection();
                     conn.setRequestMethod("POST");
                     conn.setRequestProperty("Content-Type", "application/json");
@@ -459,9 +544,11 @@ public class SettingsFragment extends Fragment {
         statusTextView.setText(R.string.testing);
         testButton.setEnabled(false);
 
+        final String apiUrl = buildApiUrl(url);
+
         new Thread(() -> {
             try {
-                URL testUrl = new URL(url);
+                URL testUrl = new URL(apiUrl);
                 HttpURLConnection conn = (HttpURLConnection) testUrl.openConnection();
                 conn.setRequestMethod("POST");
                 conn.setRequestProperty("Content-Type", "application/json");

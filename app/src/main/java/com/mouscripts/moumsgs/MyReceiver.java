@@ -38,6 +38,10 @@ public class MyReceiver extends BroadcastReceiver {
         liveListener = listener;
     }
 
+    public static OnSmsReceivedListener getLiveListener() {
+        return liveListener;
+    }
+
     @Override
     public void onReceive(Context context, Intent intent) {
         Log.i(TAG, "Intent Received: " + intent.getAction());

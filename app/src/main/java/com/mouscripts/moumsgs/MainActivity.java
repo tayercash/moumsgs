@@ -66,8 +66,6 @@ public class MainActivity extends AppCompatActivity implements PhoneSocketServic
 
         NotificationHelper.init(this);
         startForegroundService();
-        requestAppPermissions();
-        requestBatteryOptimization();
 
         this.prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         fragmentManager = getSupportFragmentManager();
@@ -84,6 +82,9 @@ public class MainActivity extends AppCompatActivity implements PhoneSocketServic
         if (savedInstanceState == null) {
             handleIntent(getIntent());
         }
+
+        requestAppPermissions();
+        requestBatteryOptimizationOnce();
     }
 
     @Override
@@ -97,14 +98,8 @@ public class MainActivity extends AppCompatActivity implements PhoneSocketServic
             String sender = intent.getStringExtra("sender");
             openConversation(sender);
         } else {
-            boolean firstLaunch = !this.prefs.getBoolean(KEY_FIRST_LAUNCH_DONE, false);
-            if (firstLaunch) {
-                openFragment(new SettingsFragment(), "Settings");
-                navView.setCheckedItem(R.id.nav_settings);
-            } else {
-                openFragment(new MessagesFragment(), "Messages");
-                navView.setCheckedItem(R.id.nav_messages);
-            }
+            openFragment(new MessagesFragment(), "Messages");
+            navView.setCheckedItem(R.id.nav_messages);
             showHamburger();
         }
     }
@@ -187,10 +182,19 @@ public class MainActivity extends AppCompatActivity implements PhoneSocketServic
         if (!toRequest.isEmpty()) ActivityCompat.requestPermissions(this, toRequest.toArray(new String[0]), PERMISSION_REQUEST_CODE);
     }
 
-    private void requestBatteryOptimization() {
+    private void requestBatteryOptimizationOnce() {
+        if (prefs.getBoolean("battery_opt_requested", false)) return;
+        prefs.edit().putBoolean("battery_opt_requested", true).apply();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
             if (pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName())) {
+                try {
+                    Intent intent = new Intent("miui.intent.action.APP_BATTERY_SAVER");
+                    intent.putExtra("package_name", getPackageName());
+                    intent.setClassName("com.miui.securitycenter", "com.miui.securitycenter.power.BatteryAppActivity");
+                    startActivity(intent);
+                    return;
+                } catch (Exception ignored) {}
                 try {
                     Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
                     intent.setData(Uri.parse("package:" + getPackageName()));
@@ -247,6 +251,10 @@ public class MainActivity extends AppCompatActivity implements PhoneSocketServic
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == PERMISSION_REQUEST_CODE) {
+            Fragment f = getSupportFragmentManager().findFragmentById(R.id.fragmentContainer);
+            if (f instanceof MessagesFragment && f.getView() != null) {
+                ((MessagesFragment) f).reloadMessages();
+            }
             if (MyForegroundService.getInstance() != null) MyForegroundService.getInstance().startSocket();
         }
     }
