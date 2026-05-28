@@ -31,9 +31,7 @@ public class SmsItem implements Serializable {
     public boolean isRead() { return isRead; }
     public int getSimSlot() { return simSlot; }
     public String getSimLabel() {
-        if (simSlot == 1) return "SIM 1";
-        if (simSlot == 2) return "SIM 2";
-        return "";
+        return "SIM " + (simSlot + 1);
     }
     public void setRead(boolean read) { isRead = read; }
 }

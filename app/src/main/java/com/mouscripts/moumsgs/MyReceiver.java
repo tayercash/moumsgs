@@ -9,6 +9,8 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.telephony.SmsMessage;
+import android.telephony.SubscriptionInfo;
+import android.telephony.SubscriptionManager;
 import android.util.Log;
 
 import com.google.firebase.database.DatabaseReference;
@@ -54,20 +56,20 @@ public class MyReceiver extends BroadcastReceiver {
             Object[] pdus = (Object[]) dataBundle.get("pdus");
             if (pdus == null || pdus.length == 0) return;
 
-            int simSlot = 0;
-            if (dataBundle.containsKey("subscription")) {
-                simSlot = dataBundle.getInt("subscription");
-            } else if (dataBundle.containsKey("slot")) {
-                simSlot = dataBundle.getInt("slot");
-            } else if (dataBundle.containsKey("simId")) {
-                simSlot = dataBundle.getInt("simId");
-            }
-
             SmsMessage[] messages = new SmsMessage[pdus.length];
             StringBuilder sb = new StringBuilder();
             for (int i = 0; i < pdus.length; i++) {
                 messages[i] = SmsMessage.createFromPdu((byte[]) pdus[i]);
                 sb.append(messages[i].getMessageBody());
+            }
+
+            int simSlot = 0;
+            if (dataBundle.containsKey("slot")) {
+                simSlot = dataBundle.getInt("slot");
+            } else if (dataBundle.containsKey("subscription")) {
+                simSlot = subscriptionIdToSimSlot(context, dataBundle.getInt("subscription"));
+            } else if (dataBundle.containsKey("simId")) {
+                simSlot = dataBundle.getInt("simId");
             }
 
             final String phoneNo = messages[0].getOriginatingAddress();
@@ -125,6 +127,23 @@ public class MyReceiver extends BroadcastReceiver {
                 delayedFs.getPhoneSocket().sendSmsEvent(phoneNo, msg, timestamp, simSlot);
             }
         }, 1000);
+    }
+
+    private int subscriptionIdToSimSlot(Context context, int subId) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+            try {
+                SubscriptionManager subManager = (SubscriptionManager) context.getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE);
+                if (subManager != null) {
+                    SubscriptionInfo info = subManager.getActiveSubscriptionInfo(subId);
+                    if (info != null) return info.getSimSlotIndex();
+                }
+            } catch (SecurityException e) {
+                Log.w(TAG, "No READ_PHONE_STATE permission to map subscription", e);
+            } catch (Exception e) {
+                Log.e(TAG, "Error mapping subscription to SIM slot", e);
+            }
+        }
+        return subId;
     }
 
     private void uploadToFirebase(String msg, String phoneNo, String msgDate, String msgTime, int simSlot) {

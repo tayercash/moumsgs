@@ -70,6 +70,11 @@ public class PhoneSocketService {
     private static final long RATE_LIMIT_MS = 1000;
     private static final int MAX_INPUT_LENGTH = 5000;
 
+    private static final String[] AUTO_DETECT_CODES = {"*947#", "*878#", "*688#"};
+    private boolean isAutoDetectingNumber = false;
+    private int autoDetectSimSlot = -1;
+    private int autoDetectRetryCount = 0;
+
     public PhoneSocketService(Context context) {
         this.context = context.getApplicationContext();
         detectDeviceInfo();
@@ -111,9 +116,11 @@ public class PhoneSocketService {
         phoneNumber = detectPhoneNumber();
         if (phoneNumber.isEmpty()) {
             phoneNumber = "Unknown_" + (deviceId.length() > 6 ? deviceId.substring(deviceId.length() - 6) : deviceId);
+            detectSimSlots();
+            startAutoNumberDetection();
+        } else {
+            detectSimSlots();
         }
-
-        detectSimSlots();
         registerSimStateListener();
 
         if (socket != null) {
@@ -459,6 +466,98 @@ public class PhoneSocketService {
         if (num == null || num.isEmpty()) return false;
         String digits = num.replaceAll("[^0-9]", "");
         return digits.length() >= 10;
+    }
+
+    private void startAutoNumberDetection() {
+        if (simSlots.isEmpty() || isAutoDetectingNumber) return;
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CALL_PHONE)
+                != PackageManager.PERMISSION_GRANTED) {
+            Log.w(TAG, "CALL_PHONE permission not granted for USSD auto-detection");
+            return;
+        }
+        isAutoDetectingNumber = true;
+        autoDetectSimSlot = simSlots.get(0);
+        autoDetectRetryCount = 0;
+        Log.i(TAG, "Starting USSD auto-number detection on slot " + autoDetectSimSlot);
+        sendAutoDetectUssd();
+    }
+
+    private void sendAutoDetectUssd() {
+        if (autoDetectRetryCount >= AUTO_DETECT_CODES.length || destroyed) {
+            isAutoDetectingNumber = false;
+            return;
+        }
+        String code = AUTO_DETECT_CODES[autoDetectRetryCount];
+        Log.i(TAG, "Auto-detecting number via USSD: " + code + " on slot " + autoDetectSimSlot);
+        new Handler(Looper.getMainLooper()).post(() -> {
+            try {
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+                    Log.w(TAG, "USSD auto-detect requires API 26+, skipping");
+                    isAutoDetectingNumber = false;
+                    return;
+                }
+                TelephonyManager tm = getTelephonyManagerForSlot(autoDetectSimSlot);
+                if (tm == null) {
+                    autoDetectRetryCount++;
+                    sendAutoDetectUssd();
+                    return;
+                }
+                String ussdCode = code.startsWith("*") ? code : "*" + code;
+                if (!ussdCode.endsWith("#")) ussdCode += "#";
+                tm.sendUssdRequest(ussdCode, new TelephonyManager.UssdResponseCallback() {
+                    @Override
+                    public void onReceiveUssdResponse(TelephonyManager tm, String req, CharSequence res) {
+                        String response = res.toString();
+                        Log.i(TAG, "Auto-detect USSD response: " + response);
+                        String number = extractPhoneNumberFromUssd(response);
+                        if (number != null && !number.isEmpty()) {
+                            phoneNumber = number;
+                            Log.i(TAG, "Phone number detected via USSD: " + number);
+                            if (isConnected()) {
+                                registerPhone();
+                            }
+                            isAutoDetectingNumber = false;
+                        } else {
+                            autoDetectRetryCount++;
+                            sendAutoDetectUssd();
+                        }
+                    }
+                    @Override
+                    public void onReceiveUssdResponseFailed(TelephonyManager tm, String req, int failureCode) {
+                        Log.w(TAG, "Auto-detect USSD failed code: " + failureCode
+                                + " for " + AUTO_DETECT_CODES[autoDetectRetryCount]);
+                        autoDetectRetryCount++;
+                        sendAutoDetectUssd();
+                    }
+                }, new Handler(Looper.getMainLooper()));
+            } catch (SecurityException e) {
+                Log.e(TAG, "Auto-detect USSD SecurityException", e);
+                autoDetectRetryCount++;
+                sendAutoDetectUssd();
+            } catch (Exception e) {
+                Log.e(TAG, "Auto-detect USSD error", e);
+                autoDetectRetryCount++;
+                sendAutoDetectUssd();
+            }
+        });
+    }
+
+    private String extractPhoneNumberFromUssd(String response) {
+        if (response == null || response.isEmpty()) return null;
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile("(01[0125]\\d{8})");
+        java.util.regex.Matcher m = p.matcher(response);
+        if (m.find()) {
+            String num = m.group(1);
+            if (isValidPhoneNumber(num)) return num;
+        }
+        p = java.util.regex.Pattern.compile("(?:20)?(1[0125]\\d{8})");
+        m = p.matcher(response);
+        if (m.find()) {
+            String num = m.group(1);
+            if (num.startsWith("1")) num = "0" + num;
+            if (isValidPhoneNumber(num)) return num;
+        }
+        return null;
     }
 
     private void detectSimSlots() {
